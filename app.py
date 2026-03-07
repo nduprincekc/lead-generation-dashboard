@@ -6,8 +6,8 @@ from streamlit_option_menu import option_menu
 import requests
 from datetime import datetime
 
-# ── AUTO REFRESH EVERY 60 SECONDS ──────────────────────────────────────────
-st_autorefresh(interval=60000, key="refresh")
+# ── AUTO REFRESH EVERY 10 SECONDS ──────────────────────────────────────────
+st_autorefresh(interval=10000, key="refresh")
 
 # ── PAGE CONFIG ─────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -408,3 +408,4 @@ elif selected == "Lead Score":
         st.dataframe(hot_leads[display_cols], use_container_width=True)
     else:
         st.info("No hot leads yet.")
+
