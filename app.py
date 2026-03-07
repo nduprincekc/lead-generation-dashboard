@@ -19,27 +19,43 @@ st.set_page_config(
 # ── CUSTOM CSS ───────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
-    .main { background-color: #0f1117; }
-    .metric-card {
-        background: #1e2535;
-        border-radius: 12px;
-        padding: 20px;
-        border-left: 4px solid #6366f1;
-    }
-    .hot { color: #ef4444; font-weight: 700; }
-    .warm { color: #f59e0b; font-weight: 700; }
-    .cold { color: #60a5fa; font-weight: 700; }
     .last-updated {
         font-size: 12px;
         color: #64748b;
         text-align: right;
         margin-bottom: 10px;
     }
+    .latest-lead-hot {
+        background: linear-gradient(135deg, #1a0a0a, #2d0f0f);
+        border: 1px solid #ef4444;
+        border-left: 5px solid #ef4444;
+        border-radius: 12px;
+        padding: 20px 24px;
+        margin-bottom: 16px;
+    }
+    .latest-lead-warm {
+        background: linear-gradient(135deg, #1a140a, #2d1f0a);
+        border: 1px solid #f59e0b;
+        border-left: 5px solid #f59e0b;
+        border-radius: 12px;
+        padding: 20px 24px;
+        margin-bottom: 16px;
+    }
+    .latest-lead-cold {
+        background: linear-gradient(135deg, #0a0f1a, #0a182d);
+        border: 1px solid #60a5fa;
+        border-left: 5px solid #60a5fa;
+        border-radius: 12px;
+        padding: 20px 24px;
+        margin-bottom: 16px;
+    }
+    .lead-card-title { font-size: 18px; font-weight: 700; margin-bottom: 4px; }
+    .lead-card-detail { font-size: 13px; color: #94a3b8; }
 </style>
 """, unsafe_allow_html=True)
 
 # ── LOAD DATA FROM SUPABASE ──────────────────────────────────────────────────
-@st.cache_data(ttl=60)  # Cache for 60 seconds, then re-fetch
+@st.cache_data(ttl=60)
 def load_data():
     try:
         SUPABASE_URL = st.secrets["SUPABASE_URL"]
@@ -61,11 +77,15 @@ def load_data():
             df = pd.DataFrame(response.json())
             if df.empty:
                 return pd.DataFrame()
-            # Normalise column names
             df.columns = df.columns.str.strip()
-            # Parse date
             if "date" in df.columns:
                 df["date"] = pd.to_datetime(df["date"], errors="coerce")
+            # Normalise lead_score to uppercase single word
+            if "lead_score" in df.columns:
+                df["lead_score"] = df["lead_score"].astype(str).str.strip().str.split().str[0].str.upper()
+            # Normalise status
+            if "status" in df.columns:
+                df["status"] = df["status"].astype(str).str.strip()
             return df
         else:
             st.error(f"Supabase error {response.status_code}: {response.text}")
@@ -77,7 +97,7 @@ def load_data():
 
 data = load_data()
 
-# ── LAST UPDATED TIMESTAMP ───────────────────────────────────────────────────
+# ── LAST UPDATED ─────────────────────────────────────────────────────────────
 st.markdown(
     f'<div class="last-updated">🔄 Last updated: {datetime.now().strftime("%d %b %Y, %H:%M:%S")}</div>',
     unsafe_allow_html=True
@@ -101,10 +121,7 @@ with st.sidebar:
         st.cache_data.clear()
         st.rerun()
 
-    st.markdown(
-        f'<small style="color:#475569;">Auto-refreshes every 60s</small>',
-        unsafe_allow_html=True
-    )
+    st.markdown('<small style="color:#475569;">Auto-refreshes every 60s</small>', unsafe_allow_html=True)
 
 # ── EMPTY STATE ───────────────────────────────────────────────────────────────
 if data.empty:
@@ -113,7 +130,6 @@ if data.empty:
 
 # ── HELPER: safe column getter ────────────────────────────────────────────────
 def col(df, *names):
-    """Return first matching column name (case-insensitive)."""
     for n in names:
         for c in df.columns:
             if c.lower() == n.lower():
@@ -131,6 +147,17 @@ SCORE_COL    = col(data, "lead_score", "score")
 STATUS_COL   = col(data, "status")
 DATE_COL     = col(data, "date", "created_at")
 
+# ── SHARED METRICS ────────────────────────────────────────────────────────────
+total  = len(data)
+hot    = len(data[data[SCORE_COL].str.upper() == "HOT"]) if SCORE_COL else 0
+warm   = len(data[data[SCORE_COL].str.upper() == "WARM"]) if SCORE_COL else 0
+cold   = len(data[data[SCORE_COL].str.upper() == "COLD"]) if SCORE_COL else 0
+# Fix: match both "Meeting Booked" and "Meetings Booked"
+booked = len(data[data[STATUS_COL].str.lower().str.contains("meeting booked", na=False)]) if STATUS_COL else 0
+conversion = round((booked / total * 100), 1) if total > 0 else 0
+
+COLOR_MAP = {"HOT": "#ef4444", "WARM": "#f59e0b", "COLD": "#60a5fa"}
+
 # ════════════════════════════════════════════════════════════════════════════
 # OVERVIEW PAGE
 # ════════════════════════════════════════════════════════════════════════════
@@ -138,25 +165,40 @@ if selected == "Overview":
 
     st.title("📊 Lead Generation Overview")
 
-    # KPI METRICS
-    col1, col2, col3, col4, col5 = st.columns(5)
-
-    total = len(data)
-    hot   = len(data[data[SCORE_COL].str.upper().str.contains("HOT", na=False)]) if SCORE_COL else 0
-    warm  = len(data[data[SCORE_COL].str.upper().str.contains("WARM", na=False)]) if SCORE_COL else 0
-    cold  = len(data[data[SCORE_COL].str.upper().str.contains("COLD", na=False)]) if SCORE_COL else 0
-    booked = len(data[data[STATUS_COL].str.upper().str.contains("MEETING BOOKED", na=False)]) if STATUS_COL else 0
-
-    col1.metric("🧑‍💼 Total Leads", total)
-    col2.metric("🔥 Hot Leads", hot)
-    col3.metric("🌤 Warm Leads", warm)
-    col4.metric("❄️ Cold Leads", cold)
-    col5.metric("📅 Meetings Booked", booked)
+    # KPI METRICS — 6 columns
+    c1, c2, c3, c4, c5, c6 = st.columns(6)
+    c1.metric("🧑‍💼 Total Leads", total)
+    c2.metric("🔥 Hot Leads", hot)
+    c3.metric("🌤 Warm Leads", warm)
+    c4.metric("❄️ Cold Leads", cold)
+    c5.metric("📅 Meetings Booked", booked)
+    c6.metric("📈 Conversion Rate", f"{conversion}%")
 
     st.divider()
 
-    # CHARTS ROW 1
-    c1, c2 = st.columns(2)
+    # LATEST LEAD CARD
+    if not data.empty and NAME_COL and SCORE_COL:
+        latest = data.iloc[0]
+        score_val = str(latest.get(SCORE_COL, "")).upper()
+        card_class = "latest-lead-hot" if score_val == "HOT" else "latest-lead-warm" if score_val == "WARM" else "latest-lead-cold"
+        score_emoji = "🔥" if score_val == "HOT" else "🌤" if score_val == "WARM" else "❄️"
+        st.markdown(f"""
+        <div class="{card_class}">
+            <div class="lead-card-title">{score_emoji} Latest Lead — {latest.get(NAME_COL, 'Unknown')}</div>
+            <div class="lead-card-detail">
+                📧 {latest.get(EMAIL_COL, 'N/A')} &nbsp;|&nbsp;
+                📞 {latest.get(PHONE_COL, 'N/A')} &nbsp;|&nbsp;
+                🏢 {latest.get(COMPANY_COL, 'N/A')} &nbsp;|&nbsp;
+                🎯 Score: <strong>{score_val}</strong> &nbsp;|&nbsp;
+                📌 Status: <strong>{latest.get(STATUS_COL, 'N/A')}</strong>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    st.divider()
+
+    # CHARTS ROW
+    c1, c2, c3 = st.columns(3)
 
     if SERVICE_COL:
         service_counts = data[SERVICE_COL].value_counts().reset_index()
@@ -173,6 +215,8 @@ if selected == "Overview":
     if BUDGET_COL:
         budget_counts = data[BUDGET_COL].value_counts().reset_index()
         budget_counts.columns = ["Budget", "Count"]
+        # Clean up long budget labels
+        budget_counts["Budget"] = budget_counts["Budget"].str.replace(r"\(.*\)", "", regex=True).str.strip()
         fig_budget = px.pie(
             budget_counts, names="Budget", values="Count",
             hole=0.5, title="💰 Budget Distribution",
@@ -180,8 +224,31 @@ if selected == "Overview":
         )
         c2.plotly_chart(fig_budget, use_container_width=True)
 
-    # LATEST 5 LEADS
-    st.subheader("🆕 Latest Leads")
+    # LEAD SCORE DONUT on Overview
+    if SCORE_COL:
+        score_counts = data[SCORE_COL].value_counts().reset_index()
+        score_counts.columns = ["Score", "Count"]
+        fig_donut = px.pie(
+            score_counts, names="Score", values="Count",
+            hole=0.6, title="🎯 Lead Score Split",
+            color="Score", color_discrete_map=COLOR_MAP
+        )
+        c3.plotly_chart(fig_donut, use_container_width=True)
+
+    # LEAD TREND SPARKLINE
+    if DATE_COL:
+        leads_trend = data.groupby(data[DATE_COL].dt.date).size().reset_index(name="Leads")
+        leads_trend.columns = ["Date", "Leads"]
+        fig_trend = px.line(
+            leads_trend, x="Date", y="Leads",
+            markers=True, title="📅 Lead Growth Over Time",
+            color_discrete_sequence=["#6366f1"]
+        )
+        fig_trend.update_traces(fill="tozeroy", fillcolor="rgba(99,102,241,0.1)")
+        st.plotly_chart(fig_trend, use_container_width=True)
+
+    # LATEST 5 LEADS TABLE
+    st.subheader("🆕 Latest 5 Leads")
     display_cols = [c for c in [NAME_COL, EMAIL_COL, PHONE_COL, SCORE_COL, STATUS_COL, DATE_COL] if c]
     st.dataframe(data[display_cols].head(5), use_container_width=True)
 
@@ -208,7 +275,6 @@ elif selected == "Analytics":
 
     c1, c2 = st.columns(2)
 
-    # TIMELINE DEMAND
     if TIMELINE_COL:
         timeline = data[TIMELINE_COL].value_counts().reset_index()
         timeline.columns = ["Timeline", "Count"]
@@ -220,7 +286,6 @@ elif selected == "Analytics":
         )
         c1.plotly_chart(fig_timeline, use_container_width=True)
 
-    # STATUS BREAKDOWN
     if STATUS_COL:
         status_counts = data[STATUS_COL].value_counts().reset_index()
         status_counts.columns = ["Status", "Count"]
@@ -231,6 +296,17 @@ elif selected == "Analytics":
         )
         c2.plotly_chart(fig_status, use_container_width=True)
 
+    # CONVERSION FUNNEL
+    st.divider()
+    st.subheader("🔽 Lead Conversion Funnel")
+    funnel_data = pd.DataFrame({
+        "Stage": ["Total Leads", "Hot Leads", "Meetings Booked"],
+        "Count": [total, hot, booked]
+    })
+    fig_funnel = px.funnel(funnel_data, x="Count", y="Stage",
+                           color_discrete_sequence=["#6366f1", "#ef4444", "#22c55e"])
+    st.plotly_chart(fig_funnel, use_container_width=True)
+
 # ════════════════════════════════════════════════════════════════════════════
 # LEADS PAGE
 # ════════════════════════════════════════════════════════════════════════════
@@ -238,9 +314,7 @@ elif selected == "Leads":
 
     st.title("📋 Leads Database")
 
-    # FILTERS
     f1, f2, f3 = st.columns(3)
-
     search = f1.text_input("🔍 Search by Name or Company")
 
     score_filter = "All"
@@ -271,7 +345,6 @@ elif selected == "Leads":
     st.markdown(f"**{len(filtered)} leads found**")
     st.dataframe(filtered, use_container_width=True, height=500)
 
-    # DOWNLOAD
     csv = filtered.to_csv(index=False).encode("utf-8")
     st.download_button("⬇️ Download CSV", csv, "leads_export.csv", "text/csv")
 
@@ -286,34 +359,40 @@ elif selected == "Lead Score":
         st.warning("No lead_score column found in your database.")
         st.stop()
 
+    # METRICS
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("🔥 Hot", hot)
+    m2.metric("🌤 Warm", warm)
+    m3.metric("❄️ Cold", cold)
+    m4.metric("📈 Conversion", f"{conversion}%")
+
+    st.divider()
+
     c1, c2 = st.columns(2)
 
     score_counts = data[SCORE_COL].value_counts().reset_index()
     score_counts.columns = ["Score", "Count"]
 
-    color_map = {"HOT": "#ef4444", "WARM": "#f59e0b", "COLD": "#60a5fa"}
     fig_score = px.bar(
         score_counts, x="Score", y="Count",
         text="Count", color="Score",
         title="Lead Score Distribution",
-        color_discrete_map=color_map
+        color_discrete_map=COLOR_MAP
     )
     c1.plotly_chart(fig_score, use_container_width=True)
 
     fig_donut = px.pie(
         score_counts, names="Score", values="Count",
         hole=0.6, title="Score Share",
-        color="Score", color_discrete_map=color_map
+        color="Score", color_discrete_map=COLOR_MAP
     )
     c2.plotly_chart(fig_donut, use_container_width=True)
 
     st.divider()
     st.subheader("🔥 Hot Leads — Priority Follow Up")
-
-    if SCORE_COL:
-        hot_leads = data[data[SCORE_COL].str.upper().str.contains("HOT", na=False)]
-        display_cols = [c for c in [NAME_COL, EMAIL_COL, PHONE_COL, COMPANY_COL, BUDGET_COL, STATUS_COL, DATE_COL] if c]
-        if not hot_leads.empty:
-            st.dataframe(hot_leads[display_cols], use_container_width=True)
-        else:
-            st.info("No hot leads yet.")
+    hot_leads = data[data[SCORE_COL].str.upper() == "HOT"]
+    display_cols = [c for c in [NAME_COL, EMAIL_COL, PHONE_COL, COMPANY_COL, BUDGET_COL, STATUS_COL, DATE_COL] if c]
+    if not hot_leads.empty:
+        st.dataframe(hot_leads[display_cols], use_container_width=True)
+    else:
+        st.info("No hot leads yet.")
