@@ -215,13 +215,19 @@ if selected == "Overview":
     if BUDGET_COL:
         budget_counts = data[BUDGET_COL].value_counts().reset_index()
         budget_counts.columns = ["Budget", "Count"]
-        # Clean up long budget labels
-        budget_counts["Budget"] = budget_counts["Budget"].str.replace(r"\(.*\)", "", regex=True).str.strip()
+        def clean_budget(label):
+            label = str(label)
+            if "Less" in label or ("500" in label and "2,000" not in label): return "Below ₦500k"
+            if "500" in label and "2,000" in label: return "₦500k – ₦2M"
+            if "2,000" in label or "2M" in label: return "Above ₦2M"
+            return label.split("(")[0].strip()
+        budget_counts["Budget"] = budget_counts["Budget"].apply(clean_budget)
         fig_budget = px.pie(
             budget_counts, names="Budget", values="Count",
             hole=0.5, title="💰 Budget Distribution",
             color_discrete_sequence=px.colors.qualitative.Safe
         )
+        fig_budget.update_traces(textposition="inside", textinfo="percent+label")
         c2.plotly_chart(fig_budget, use_container_width=True)
 
     # LEAD SCORE DONUT on Overview
@@ -239,12 +245,15 @@ if selected == "Overview":
     if DATE_COL:
         leads_trend = data.groupby(data[DATE_COL].dt.date).size().reset_index(name="Leads")
         leads_trend.columns = ["Date", "Leads"]
+        leads_trend["Date"] = pd.to_datetime(leads_trend["Date"])
         fig_trend = px.line(
             leads_trend, x="Date", y="Leads",
             markers=True, title="📅 Lead Growth Over Time",
             color_discrete_sequence=["#6366f1"]
         )
         fig_trend.update_traces(fill="tozeroy", fillcolor="rgba(99,102,241,0.1)")
+        fig_trend.update_xaxes(tickformat="%d %b %Y", tickangle=-30)
+        fig_trend.update_layout(xaxis_title="Date", yaxis_title="Number of Leads")
         st.plotly_chart(fig_trend, use_container_width=True)
 
     # LATEST 5 LEADS TABLE
@@ -263,12 +272,15 @@ elif selected == "Analytics":
     if DATE_COL:
         leads_trend = data.groupby(data[DATE_COL].dt.date).size().reset_index(name="Leads")
         leads_trend.columns = ["Date", "Leads"]
+        leads_trend["Date"] = pd.to_datetime(leads_trend["Date"])
         fig_trend = px.line(
             leads_trend, x="Date", y="Leads",
             markers=True, title="📅 Lead Growth Over Time",
             color_discrete_sequence=["#6366f1"]
         )
         fig_trend.update_traces(fill="tozeroy", fillcolor="rgba(99,102,241,0.1)")
+        fig_trend.update_xaxes(tickformat="%d %b %Y", tickangle=-30)
+        fig_trend.update_layout(xaxis_title="Date", yaxis_title="Number of Leads")
         st.plotly_chart(fig_trend, use_container_width=True)
 
     st.divider()
